@@ -7,9 +7,9 @@ from email.mime.multipart import MIMEMultipart
 from twilio.rest import Client
 import threading
 from datetime import datetime
-from fire_smoke_detection import detect_fire_smoke
 import pandas as pd
-import pygame
+
+from fire_smoke_detection import detect_fire_smoke
 
 # ==============================
 # Streamlit page setup
@@ -19,21 +19,32 @@ st.title("🔥 Fire & Smoke Detection System")
 st.write("Real-time detection using OpenCV + Streamlit")
 
 # ==============================
-# Initialize pygame for alarm
+# Check if running on Streamlit Cloud
 # ==============================
-pygame.mixer.init()
-alarm_running = False  # global flag
+IS_CLOUD = st.runtime.exists() and "SERVER" in st.runtime.s3_path if hasattr(st.runtime, "s3_path") else False
+
+# ==============================
+# Alarm setup
+# ==============================
+alarm_running = False
+
+if not IS_CLOUD:
+    import pygame
+    pygame.mixer.init()
 
 def start_alarm():
     global alarm_running
+    if alarm_running:
+        return
     alarm_running = True
+
+    if IS_CLOUD:
+        st.warning("⚠️ Alarm sound is disabled on Streamlit Cloud")
+        return
 
     alarm_path = os.path.join(os.getcwd(), "alarm.wav.wav")
     if not os.path.exists(alarm_path):
-        st.warning(
-            f"⚠️ Alarm file not found: {alarm_path}\n"
-            "Please place your alarm.wav file in the same folder as app.py"
-        )
+        st.warning(f"⚠️ Alarm file not found: {alarm_path}")
         alarm_running = False
         return
 
@@ -43,7 +54,8 @@ def start_alarm():
 def stop_alarm():
     global alarm_running
     alarm_running = False
-    pygame.mixer.music.stop()
+    if not IS_CLOUD:
+        pygame.mixer.music.stop()
 
 # ==============================
 # Alert log file
@@ -127,7 +139,7 @@ st.session_state.twilio_to = st.sidebar.text_input("To (e.g., whatsapp:+91XXXXXX
 
 st.sidebar.subheader("🛠 Test Notifications")
 if st.sidebar.button("🔔 Test Alarm"):
-    start_alarm()
+    threading.Thread(target=start_alarm, daemon=True).start()
 if st.sidebar.button("📨 Test Email"):
     send_email("Test email alert", 1)
     st.sidebar.success("✅ Test email sent")
@@ -176,7 +188,7 @@ while run:
         if alerts is not None:
             history_placeholder.dataframe(alerts)
 
-        # Start looping alarm if not already running
+        # Start alarm thread
         if not alarm_running:
             threading.Thread(target=start_alarm, daemon=True).start()
 
